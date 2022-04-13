@@ -1,0 +1,1147 @@
+using System;
+using System.Threading;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
+using System.Windows.Shapes;
+using System.Diagnostics; //Debug사용
+using System.Drawing;
+using System.Runtime.InteropServices; //이미지 서칭용/마우스이벤트
+using System.Windows.Forms;
+using System.Runtime.Serialization.Formatters.Binary; //저장용
+using System.IO;
+using System.Drawing.Imaging; //스크린 캡쳐용
+
+
+/*
+[200916 추가구현 할 것]
+    - 액션 마우스 위치, 키다운 추가
+*/
+
+namespace joonmacro
+{
+    /// <summary>
+    /// MainWindow.xaml에 대한 상호 작용 논리
+    /// </summary>
+    public partial class MainWindow : Window
+    {
+        private static MainWindow instance;
+        public static int GLOBAL_INDEX = 1;
+        public static int IMAGE_NUM = 1;
+        public static int CAPTURE_NUM = 1;
+        public static bool STOP = false;
+        //private static SolidColorBrush stateColor;
+
+
+        Dictionary<int, String> dic = new Dictionary<int, string>();
+
+
+        //매크로 액션리스트 리스트 정의
+        List<MacroData> actionList = new List<MacroData>();
+        private static List<MacroData> ActionList { get => instance.actionList; set => instance.actionList = value; }
+
+
+
+        //메인 윈도. 시작점
+        public MainWindow()
+        {
+            InitializeComponent();
+            Function.CreateFolder(); //최초 폴더 생성 Image/Save/Capture
+            instance = this;
+
+
+            //세이브 데이터 체크
+            string curFile = AppDomain.CurrentDomain.BaseDirectory + @"\\Save\\SaveData.jms";
+
+            if (File.Exists(curFile))
+            {
+                // 세이브 데이터가 있는 경우OOO
+                // 글로벌 인덱스도 불러오기 GLOBAL_INDEX = 0;
+                Debug.WriteLine("세이브 데이터가 있음!");
+                LoadData();
+                //세이브 데이터 리스트 불러와야함
+            }
+            else
+            {
+                //세이브 데이터가 없는 경우XXX
+                //디폴트 리스트 불러오기
+                Debug.WriteLine("세이브 데이터가 없음!");
+                GLOBAL_INDEX = 1;
+                IMAGE_NUM = 1;
+                CAPTURE_NUM = 1;
+                //actionList.Add(new MacroData(false, GLOBAL_INDEX, "None", 0, "0", "-"));
+                DataGridActionList.ItemsSource = actionList;
+            }
+
+
+            //ESC키 후킹용
+            CompositionTarget.Rendering += new EventHandler(StopButton_Click);
+            
+        }
+
+
+        public static void ColorRefresh()
+        {
+            for (int i = 0; i < ActionList.Count; i++)
+            {
+                if (ActionList[i].ActionName == "Comment")
+                {
+                    Console.WriteLine("코멘트 체크");
+
+                    //색을 바꿔줘야함
+                    //instance.DataGridActionList.Foreground = System.Windows.Media.Brushes.Black;
+
+                }                    
+                else
+                {
+                    //기본 검은 색
+                    //instance.DataGridActionList.Foreground = System.Windows.Media.Brushes.Black;
+                }
+                    
+            }
+            instance.DataGridActionList.ItemsSource = ActionList;
+        }
+
+
+
+
+
+
+        /* 액션
+         DoubleClick / Wait / Typing / Search / Capture
+         */
+
+        //리스트 내부 체크 로직
+        public static void ActionListChecker(string ActionName, int I_Value, string S_Value, string Image)
+        {
+            //Debug.WriteLine("{0} / {1} / {2} / {3}",ActionName, I_Value, S_Value, Image);
+
+
+            //[case] DoubleClick 경우
+            if (ActionName == "Click")
+            {
+                Debug.WriteLine("클릭");
+                instance.RunningLog.Content = "현재 마우스 위치를 " + I_Value + "회 클릭합니다.";
+                Function.Click(I_Value);
+                Function.Wait(100); //기능간 텀
+            }
+
+            //[case] Wait 경우
+            if (ActionName == "Wait")
+            {
+                Debug.WriteLine("wait시작");
+                instance.RunningLog.Content = I_Value * 0.001 + "초 대기합니다.";
+                Function.Wait(I_Value);
+                Debug.WriteLine("wait종료");
+            }
+
+
+            //[case] Typing 경우
+            if (ActionName == "Typing")
+            {
+                Debug.WriteLine("타이핑 입력 시작");
+                instance.RunningLog.Content = "입력된 내용을 타이핑합니다.";
+                Function.KeyTyping(S_Value);
+                Debug.WriteLine("타이핑 입력 종료");
+                Function.Wait(100); //기능간 텀
+            }
+
+            //[case] Search 경우
+            if (ActionName == "Search") 
+            {
+               
+                Debug.WriteLine("이미지찾기 시작");
+                instance.RunningLog.Content = Image + "를 화면에서 찾습니다.";
+                Function.ImageSearch(Image, Convert.ToDouble(S_Value));
+                //Function.Search(Image);
+                               
+
+                Function.Wait(100); //기능간 텀
+
+                
+
+                Debug.WriteLine("이미지찾기 종료");
+            }
+
+            //[case] Capture 경우
+            if (ActionName == "Capture")
+            {
+                Debug.WriteLine("화면 캡쳐 시작");
+                instance.RunningLog.Content = "현재 화면을 캡쳐하였습니다.";
+                Function.ScreenCopy();
+                Debug.WriteLine("화면 캡쳐 종료");
+                Function.Wait(100); //기능간 텀
+            }
+           
+            //[case] Key 경우
+            if (ActionName == "Key")
+            {
+                Debug.WriteLine("키 입력처리 시작");
+
+                if (S_Value == "Enter")
+                {
+                    Function.KeyTyping("{ENTER}");
+                    instance.RunningLog.Content = "엔터를 입력하였습니다.";                    
+                }
+                if (S_Value == "`")
+                {
+                    Function.KeyTyping("{`}");
+                    instance.RunningLog.Content = "`를 입력하였습니다.";
+                }
+                if (S_Value == "Space")
+                {
+                    Function.KeyTyping(" ");
+                    instance.RunningLog.Content = "스페이스바를 입력하였습니다.";
+                }
+                if (S_Value == "BackSpace")
+                {
+                    Function.KeyTyping("{BACKSPACE}");
+                    instance.RunningLog.Content = "백스페이스를 입력하였습니다.";
+                }
+                if (S_Value == "Esc")
+                {
+                    Function.KeyTyping("{ESC}");
+                    instance.RunningLog.Content = "Esc를 입력하였습니다.";
+                }
+                if (S_Value == "Up")
+                {
+                    Function.KeyTyping("{UP}");
+                    instance.RunningLog.Content = "↑를 입력하였습니다.";
+                }
+                if (S_Value == "Left")
+                {
+                    Function.KeyTyping("{LEFT}");
+                    instance.RunningLog.Content = "←를 입력하였습니다.";
+                }
+                if (S_Value == "Right")
+                {
+                    Function.KeyTyping("{RIGHT}");
+                    instance.RunningLog.Content = "→를 입력하였습니다.";
+                }
+                if (S_Value == "Down")
+                {
+                    Function.KeyTyping("{DOWN}");
+                    instance.RunningLog.Content = "↓를 입력하였습니다.";
+                }
+                if (S_Value == "Ctrl+C")
+                {
+                    Function.KeyTyping("^c");
+                    instance.RunningLog.Content = "Ctrl+C를 입력하였습니다.";
+                }
+                if (S_Value == "Ctrl+X")
+                {
+                    Function.KeyTyping("^x");
+                    instance.RunningLog.Content = "Ctrl+X를 입력하였습니다.";
+                }
+                if (S_Value == "Ctrl+V")
+                {
+                    Function.KeyTyping("^v");
+                    instance.RunningLog.Content = "Ctrl+V를 입력하였습니다.";
+                }
+                if (S_Value == "Ctrl+Z")
+                {
+                    Function.KeyTyping("^z");
+                    instance.RunningLog.Content = "Ctrl+Z를 입력하였습니다.";
+                }
+                if (S_Value == "Ctrl+A")
+                {
+                    Function.KeyTyping("^a");
+                    instance.RunningLog.Content = "Ctrl+A를 입력하였습니다.";
+                }
+                if (S_Value == "Alt+1")
+                {
+                    Function.KeyTyping("%{1}");
+                    instance.RunningLog.Content = "Alt+1를 입력하였습니다.";
+                }
+                if (S_Value == "Alt+2")
+                {
+                    Function.KeyTyping("%{2}");
+                    instance.RunningLog.Content = "Alt+2를 입력하였습니다.";
+                }
+                if (S_Value == "Alt+3")
+                {
+                    Function.KeyTyping("%{3}");
+                    instance.RunningLog.Content = "Alt+3를 입력하였습니다.";
+                }
+                if (S_Value == "Delete")
+                {
+                    Function.KeyTyping("{DELETE}");
+                    instance.RunningLog.Content = "Delete를 입력하였습니다.";
+                }
+                if (S_Value == "/")
+                {
+                    Function.KeyTyping("{/}");
+                    instance.RunningLog.Content = "/를 입력하였습니다.";
+                }
+
+                Debug.WriteLine("키 입력 종료");
+                Function.Wait(200); //기능간 텀
+            }
+
+            
+            //[case] MousePos 경우
+            if (ActionName == "MousePos")
+            {
+                Debug.WriteLine("마우스위치이동 시작");
+
+                //마우스 이동
+                Function.MouseMove(I_Value, Convert.ToInt32(S_Value));
+                instance.RunningLog.Content = "마우스를 지정 위치로 이동하였습니다.";
+                
+                Debug.WriteLine("마우스 이동 종료");
+                Function.Wait(100); //기능간 텀
+            }
+            
+
+            //[case] SearchWait 경우
+            if (ActionName == "SearchWait")
+            {
+                Debug.WriteLine("이미지 서치 시작");
+
+                //이미지 못찾으면 대기시키키
+
+                while (true)
+                {
+                    instance.RunningLog.Content = "이미지를 화면에서 찾을 때까지 대기합니다.";
+                    Function.ImageSearch(Image, Convert.ToDouble(S_Value));
+
+                    if (STOP == true)
+                    {
+                        instance.StopMacroComponent();
+                        STOP = false;
+                        instance.RunningLog.Content = "매크로가 종료되었습니다.";
+                        Debug.WriteLine("매크로 STOP 종료");
+                        return;
+                    }
+                    if (Convert.ToString(instance.RunningLog.Content) == "이미지 찾기 성공") { break; }
+
+                    Function.Wait(100);
+                }
+
+
+
+                Function.Wait(100); //기능간 텀
+                Debug.WriteLine("이미지찾기 종료");
+            }
+
+
+            //[case] MouseMoveClick 경우
+            if (ActionName == "MouseMoveClick")
+            {
+                Debug.WriteLine("마우스위치이동 후 클릭 시작");
+
+                //마우스 이동
+                Function.MouseMove(I_Value, Convert.ToInt32(S_Value));
+                
+                Debug.WriteLine("마우스 이동 종료");
+                Function.Click(1);
+                instance.RunningLog.Content = "마우스를 지정 위치로 이동 후 클릭 1회 하였습니다.";
+
+                Function.Wait(100); //기능간 텀
+            }
+
+            //[case] Comment
+            if (ActionName == "Comment")
+            {
+                Debug.WriteLine("주석");
+                
+            }
+
+
+
+        }
+
+
+        
+        //수정 시 갱신 로직
+        public static void Modify(int index, string actionType, int i_value, string s_value)
+        {
+            
+            //리스트에서 인덱스 번호를 찾아서 넣어주기
+
+            Debug.WriteLine("인덱스 체크 시작");
+            //액션리스트에서 체크내역 먼저 체크
+            for (int i = 0; i < instance.actionList.Count; i++)
+            {
+                //액션리스트에서 인덱스가 같은것을 찾는다.
+                if (instance.actionList[i].Index == index)
+                {
+                    //찾으면 갱신
+                    instance.actionList[i].ActionName = actionType;
+                    instance.actionList[i].Int_Value = i_value;
+                    instance.actionList[i].String_Value = s_value;
+
+                    instance.DataGridActionList.ItemsSource = null;
+                    instance.DataGridActionList.ItemsSource = ActionList;
+                }
+            }
+            
+
+        }
+
+
+
+        //리스트에 추가하기 로직
+        public static void AddList(string actionType, int i_value, string s_value, string image)
+        {
+            string at = actionType;
+            int iv = i_value;
+            string sv = s_value;
+            string img = image;
+
+            ActionList.Add(new MacroData(false, GLOBAL_INDEX, at, iv, sv, img));
+            instance.DataGridActionList.ItemsSource = null;
+            instance.DataGridActionList.ItemsSource = ActionList;
+
+        }
+
+
+
+        //로딩 데이터 로직
+        private void LoadData()
+        {
+            FileStream read_stream;
+            read_stream = System.IO.File.OpenRead(AppDomain.CurrentDomain.BaseDirectory + @"\\Save\\SaveData.jms");
+            BinaryFormatter format = new BinaryFormatter();
+            object read = format.Deserialize(read_stream);
+            Save_Ex.Save sv = read as Save_Ex.Save;
+            read_stream.Close();
+
+            Textbox1.Text = sv.Get_t1();
+            GLOBAL_INDEX = Convert.ToInt32(sv.Get_t2());
+            IMAGE_NUM = Convert.ToInt32(sv.Get_t3());
+            CAPTURE_NUM = Convert.ToInt32(sv.Get_t4());
+            dic = sv.Get_dic();
+            actionList = sv.Get_list();
+            DataGridActionList.ItemsSource = ActionList;
+
+            Debug.WriteLine("불러오기 완료");
+        }
+
+
+
+        //체크된 항목 찾기
+        private void CheckFinder()
+        {
+            List<MacroData> NonCheckList = new List<MacroData>();
+
+            for (int i = 0; i < actionList.Count; i++)//액션 리스트 서치
+            {
+                //액션리스트에서 체크 안된 항목을찾음
+                if (actionList[i].Check == false)
+                {
+                    NonCheckList.Add(actionList[i]);                                    
+                }                
+            }
+            actionList.Clear();
+            for (int i = 0; i< NonCheckList.Count; i++)
+            {
+                actionList.Add(NonCheckList[i]);
+                //인덱스값 초기화 후 가산
+                actionList[i].Index=i+1;
+            }
+            //글로벌 인덱스값 마지막 값+1
+            GLOBAL_INDEX = actionList.Count+1;
+        }
+
+
+
+        //이미지 못찾음
+        public static void NotImageMatching()
+        {
+            instance.RunningLog.Content = "이미지를 찾기 실패, 액션 미실행";
+            Function.Wait(300);
+        }
+        public static void SuccessImageMatching()
+        {
+            instance.RunningLog.Content = "이미지 찾기 성공";
+            Function.Wait(300);
+        }
+
+
+            
+
+
+        //=============================================버튼 이벤트===============================================
+
+
+        //종료 버튼
+        private void TitleExitEvent(object sender, RoutedEventArgs e)
+        {
+            
+            Environment.Exit(0);
+            System.Diagnostics.Process.GetCurrentProcess().Kill(); //작업관리자에서 완전 죽이는 코드
+            Close();
+        }
+
+
+        //초기화 버튼
+        private void InitClick(object sender, RoutedEventArgs e)
+        {
+            //Save폴더 초기화
+            if (System.IO.Directory.Exists(AppDomain.CurrentDomain.BaseDirectory + @"\\Save"))
+            {
+                string[] files = System.IO.Directory.GetFiles(AppDomain.CurrentDomain.BaseDirectory + @"\\Save");
+                foreach (string s in files)
+                {
+                    string fileName = System.IO.Path.GetFileName(s);
+                    string deletefile = AppDomain.CurrentDomain.BaseDirectory + @"\\Save\\" + fileName;
+                    System.IO.File.Delete(deletefile);
+                }
+            }
+
+            //Image 폴더 초기화
+            if (System.IO.Directory.Exists(AppDomain.CurrentDomain.BaseDirectory + @"\\Image"))
+            {
+                string[] files = System.IO.Directory.GetFiles(AppDomain.CurrentDomain.BaseDirectory + @"\\Image");
+                foreach (string s in files)
+                {
+                    string fileName = System.IO.Path.GetFileName(s);
+                    string deletefile = AppDomain.CurrentDomain.BaseDirectory + @"\\Image\\" + fileName;
+                    System.IO.File.Delete(deletefile);
+                }
+            }
+
+            //반복 횟수 초기화
+            Textbox1.Text = "1";
+
+            //전역변수 초기화
+            GLOBAL_INDEX = 1;
+            IMAGE_NUM = 1;
+            CAPTURE_NUM = 1;
+
+            //액션 리스트 초기화
+            for (int i = 0; i < actionList.Count; i++)
+            {
+                actionList.Clear(); //remove 특정 이름의 값 지우기, removeat 인덱스로 지우기
+            }
+            instance.DataGridActionList.ItemsSource = null;
+
+
+            Debug.WriteLine("초기화 완료");
+
+            DefaultDialog win2 = new DefaultDialog("초기화", "매크로를 초기화했습니다.");
+            win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+            win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            bool result = win2.ShowDialog().Value;
+        }
+
+
+        //저장 버튼
+        private void SaveClick(object sender, RoutedEventArgs e)
+        {
+            string global_index = Convert.ToString(GLOBAL_INDEX);
+            string image_num = Convert.ToString(IMAGE_NUM);
+            string capture_num = Convert.ToString(CAPTURE_NUM);
+            
+
+            FileStream write_steam;
+            Save_Ex.Save save = new Save_Ex.Save(Textbox1.Text, global_index, image_num, capture_num, dic, actionList);
+            write_steam = File.Create(AppDomain.CurrentDomain.BaseDirectory + @"\\Save\\SaveData.jms"); //저장데이터
+            BinaryFormatter format = new BinaryFormatter();
+            format.Serialize(write_steam, save);
+            write_steam.Close();
+
+            Debug.WriteLine("저장 완료");
+
+
+            DefaultDialog win2 = new DefaultDialog("저장", "매크로를 저장하였습니다.");
+            win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+            win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            bool result = win2.ShowDialog().Value;
+
+
+        }
+
+
+        //폼 드래그앤 드롭 
+        private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            this.DragMove();
+        }
+
+
+        //ADD버튼 클릭
+        public void AddButtonClick(object sender, RoutedEventArgs e)
+        {
+            Debug.WriteLine("추가 팝업 호출");
+
+            joonmacro2.AddDialog win2 = new joonmacro2.AddDialog("액션 추가", "-");
+            win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+            win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            bool result = win2.ShowDialog().Value;
+        }
+
+       
+        //Run버튼 클릭
+        public void RunButtonClick(object sender, RoutedEventArgs e)
+        {
+            
+            if (Convert.ToInt32(instance.Textbox1.Text) > 99999)
+            {
+                DefaultDialog win2 = new DefaultDialog("알림", "최대 반복값 99999 초과입니다.");
+                win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+                win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                bool result = win2.ShowDialog().Value;
+
+                return;
+            }
+
+            Debug.WriteLine("매크로 시작");
+            instance.RunningLog.Content = "매크로가 시작됩니다.";
+            Function.Wait(500);
+
+            //Run버튼 비활성화 처리
+            RuningMacroComponent();
+
+            //Stop 활성화 처리
+            //Running 상태
+
+            int RunNum = Convert.ToInt32(instance.Textbox1.Text);
+            instance.Textbox1Running.Content = "1 / " + RunNum;
+
+            STOP = false;
+            for (int r = 1; r <= RunNum; r++)//매크로 실행횟수
+            {
+
+                List<MacroData> PlayList = actionList;
+
+                for (int i = 0; i < PlayList.Count; i++)//액션 리스트 서치
+                {
+                    if (STOP == true)
+                    {
+                        StopMacroComponent();
+                        STOP = false;
+                        instance.RunningLog.Content = "매크로가 종료되었습니다.";
+                        Debug.WriteLine("매크로 STOP종료");
+                        
+                        return;
+                    }
+
+
+
+                    //Debug.WriteLine(RunNum);
+                    ActionListChecker(PlayList[i].ActionName, PlayList[i].Int_Value, PlayList[i].String_Value, PlayList[i].ImageName);
+                }
+
+                instance.Textbox1Running.Content = r + 1 + " / " + RunNum;
+                Debug.WriteLine("========================");
+            }
+
+            instance.RunningLog.Content = "매크로가 종료되었습니다.";
+            Debug.WriteLine("매크로 종료");
+            StopMacroComponent();
+
+            return;
+        }
+
+
+        //Delete버튼 클릭
+        public void DeleteClick(object sender, RoutedEventArgs e)
+        {
+
+            //체크가 되어있는가? (체크 유무를 리스트에서 찾기)
+
+            CheckFinder();
+            instance.DataGridActionList.ItemsSource = null;
+            instance.DataGridActionList.ItemsSource = ActionList;
+
+        }
+
+
+        //Modify버튼 클릭
+        public void ModifyButtonClick(object sender, RoutedEventArgs e)
+        {
+
+            //체크 2개이상하면 안된다고 피드백 팝업
+            List<MacroData> CheckList = new List<MacroData>();
+
+            //액션리스트에서 체크내역 먼저 체크
+            for (int i = 0; i < actionList.Count; i++)
+            {
+                //액션리스트에서 체크된 항목을찾음
+                if (actionList[i].Check == true) { CheckList.Add(actionList[i]); }
+            }
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+                //체크가 여러개인 경우 바로 리턴
+                if (CheckList.Count > 1)
+                {
+                    Debug.WriteLine("하나만 체크해야함"); // 1개 체크 팝업 알려주기
+
+                    DefaultDialog win2 = new DefaultDialog("알림", "하나의 항목만 체크해주세요.");
+                    win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+                    win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                    bool result = win2.ShowDialog().Value;
+                    return;
+                }              
+
+            }
+
+            Debug.WriteLine("수정 팝업 호출");
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+                //체크된 친구를 다시 찾음
+                if (CheckList[i].Check == true)
+                {
+                    if (CheckList[i].ActionName == "Capture" || CheckList[i].ActionName == "Key")
+                    {
+                        DefaultDialog win3 = new DefaultDialog("알림", "해당 액션은 수정불가합니다.");
+                        win3.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+                        win3.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                        bool result2 = win3.ShowDialog().Value;
+                        //피드백
+                    }
+                    else
+                    {                    
+                    joonmacro2.ModifyDialog win2 = new joonmacro2.ModifyDialog("액션 수정", "-", CheckList[i].Index, CheckList[i].ActionName, CheckList[i].Int_Value, CheckList[i].String_Value);
+                    //선택한 액션 내용 보여주기                    
+                    win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+                    win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                    bool result = win2.ShowDialog().Value;
+                    }
+
+                }
+
+            }
+
+            
+        }
+
+
+        //Copy버튼 클릭
+        public void CopyButtonClick(object sender, RoutedEventArgs e)
+        {
+
+            //체크 2개이상하면 안된다고 피드백 팝업
+            List<MacroData> CheckList = new List<MacroData>();
+
+            //액션리스트에서 체크내역 먼저 체크
+            for (int i = 0; i < actionList.Count; i++)
+            {
+                //액션리스트에서 체크된 항목을찾음
+                if (actionList[i].Check == true) { CheckList.Add(actionList[i]); }
+            }
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+                //체크가 여러개인 경우 바로 리턴
+                if (CheckList.Count > 1)
+                {
+                    Debug.WriteLine("하나만 체크해야함"); // 1개 체크 팝업 알려주기
+
+                    DefaultDialog win2 = new DefaultDialog("알림", "하나의 항목만 체크해주세요.");
+                    win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+                    win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+                    bool result = win2.ShowDialog().Value;
+                    return;
+                }
+
+            }
+
+            Debug.WriteLine("복사 기능");
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+                //체크된 친구를 다시 찾고 복사
+                if (CheckList[i].Check == true)
+                {
+                    CheckList[i].Check = false;
+                    AddList(CheckList[i].ActionName, CheckList[i].Int_Value, CheckList[i].String_Value, CheckList[i].ImageName);
+                    GLOBAL_INDEX = actionList.Count + 1;
+                }
+
+                
+
+            }
+
+
+        }
+
+
+        //AddWait 버튼 클릭
+        public void AddWaitButtonClick(object sender, RoutedEventArgs e)
+        {
+            Debug.WriteLine("Wait 추가 기능");
+
+            //wait 기능 리스트에 추가.
+            string actiontype = "Wait";
+            int i_value = 500;
+            string s_value = "-";
+            string image = "-";
+
+            //add리스트에 접근해야함
+            joonmacro.MainWindow.AddList(actiontype, i_value, s_value, image);
+            joonmacro.MainWindow.GLOBAL_INDEX += 1;
+                            
+        }
+
+
+        //CheckOff 버튼 클릭
+        public void CheckOffButtonClick(object sender, RoutedEventArgs e)
+        {
+            Debug.WriteLine("Wait 추가 기능");
+
+            //wait 기능 리스트에 추가.
+            string actiontype = "Wait";
+            int i_value = 500;
+            string s_value = "-";
+            string image = "-";
+
+            //add리스트에 접근해야함
+            joonmacro.MainWindow.AddList(actiontype, i_value, s_value, image);
+            joonmacro.MainWindow.GLOBAL_INDEX += 1;
+
+        }
+
+
+        //Up, Down 버튼 클릭
+        private void Up_Button_Click(object sender, RoutedEventArgs e)
+        {
+            //체크된 항목 체크
+            List<MacroData> CheckList = new List<MacroData>();
+
+            Debug.WriteLine("Up_Button_Click시작"); // 가장위 팝업
+            //액션리스트에서 체크내역 먼저 체크
+            for (int i = 0; i < actionList.Count; i++)
+            {            
+                //액션리스트에서 체크된 항목을찾음
+                if (actionList[i].Check == true) { CheckList.Add(actionList[i]); }
+            }
+
+            //체크가 없는 경우 바로 리턴
+            if (CheckList.Count == 0)
+            {
+                Debug.WriteLine("하나는 체크해야함"); // 1개 체크 팝업 알려주기
+                return;
+            }
+
+            //예외처리 체크
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+
+                //체크가 여러개인 경우 바로 리턴)
+                if (CheckList.Count > 1)
+                {
+                    Debug.WriteLine("하나만 체크해야함"); // 1개 체크 팝업 알려주기
+                    return;
+                }
+
+                //인덱스 체크하고 위에것과 비교(가장 위인 경우 바로 리턴)
+                if (CheckList[i].Index == 1)
+                {
+                    Debug.WriteLine("가장 위입니다."); // 가장위 팝업
+                    return;
+                }
+
+            }
+
+            //바꿔주는 로직
+            for (int i = 0; i < actionList.Count; i++)//액션 리스트 서치
+            {
+                Debug.WriteLine("바꾼다"); // 가장위 팝업
+
+                if (actionList[i].Check == true )//액션리스트에서 먼저 체크된걸 찾음
+                {
+                    //그후 CheckList에서 내역찾기
+                    for (int j = 0; j < CheckList.Count; j++)
+                    {
+                        if (CheckList[j].Check == true)
+                        {                            
+                            CheckList[j] = actionList[i-1];
+                            
+                            actionList[i].Check = false;
+                            actionList[i - 1] = actionList[i];
+
+                            actionList[i - 1].Check = true;
+                            actionList[i] = CheckList[j];
+
+                            actionList[i - 1].Index -=1;
+                            actionList[i].Index += 1;
+
+                            //최신화
+                            instance.DataGridActionList.ItemsSource = null;
+                            instance.DataGridActionList.ItemsSource = ActionList;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void Down_Button_Click(object sender, RoutedEventArgs e)
+        {
+            //체크된 항목 체크
+            List<MacroData> CheckList = new List<MacroData>();
+
+            Debug.WriteLine("Down_Button_Click시작"); // 가장위 팝업
+            //액션리스트에서 체크내역 먼저 체크
+            for (int i = 0; i < actionList.Count; i++)
+            {
+                //액션리스트에서 체크된 항목을찾음
+                if (actionList[i].Check == true) { CheckList.Add(actionList[i]); }
+            }
+
+            //체크가 없는 경우 바로 리턴
+            if (CheckList.Count == 0)
+            {
+                Debug.WriteLine("하나는 체크해야함"); // 1개 체크 팝업 알려주기
+                return;
+            }
+
+            //예외처리 체크
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+
+                //체크가 여러개인 경우 바로 리턴)
+                if (CheckList.Count > 1)
+                {
+                    Debug.WriteLine("하나만 체크해야함"); // 1개 체크 팝업 알려주기
+                    return;
+                }
+
+                //인덱스 체크하고 아래 것과 비교(가장 아래인 경우 바로 리턴)
+                if (CheckList[i].Index == actionList.Count)
+                {
+                    Debug.WriteLine("가장 아래입니다."); // 가장 아래 팝업
+                    return;
+                }
+
+            }
+
+            //바꿔주는 로직
+            for (int i = 0; i < actionList.Count; i++)//액션 리스트 서치
+            {
+                Debug.WriteLine("바꾼다"); // 가장위 팝업
+
+                if (actionList[i].Check == true)//액션리스트에서 먼저 체크된걸 찾음
+                {
+                    //그후 CheckList에서 내역찾기
+                    for (int j = 0; j < CheckList.Count; j++)
+                    {
+                        if (CheckList[j].Check == true)
+                        {
+
+                            CheckList[j] = actionList[i + 1];
+
+
+                            actionList[i].Check = false;
+                            actionList[i + 1] = actionList[i];
+
+                            actionList[i + 1].Check = true;
+                            actionList[i] = CheckList[j];
+
+                            actionList[i + 1].Index += 1;
+                            actionList[i].Index -= 1;
+
+                            //최신화
+                            instance.DataGridActionList.ItemsSource = null;
+                            instance.DataGridActionList.ItemsSource = ActionList;
+
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+        //Stop 버튼
+        private void StopButton_Click(object sender, EventArgs e)
+        {
+            if ((Keyboard.GetKeyStates(Key.Escape) & KeyStates.Down) > 0)
+                STOP = true;
+        }
+
+
+        //CheckOff 버튼
+        private void CheckOffButton_Click(object sender, RoutedEventArgs e)
+        {
+
+            List<MacroData> CheckList = new List<MacroData>();
+
+            //액션리스트에서 체크내역 먼저 체크
+            for (int i = 0; i < actionList.Count; i++)
+            {
+                //액션리스트에서 체크된 항목을찾음
+                if (actionList[i].Check == true) { CheckList.Add(actionList[i]); }
+            }
+
+            for (int i = 0; i < CheckList.Count; i++)
+            {
+                CheckList[i].Check = false;
+            }
+
+            instance.DataGridActionList.ItemsSource = null;
+            instance.DataGridActionList.ItemsSource = ActionList;
+        }
+
+        //ESC키로 탈출
+        private void KeyEvent(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.KeyboardDevice.IsKeyDown(Key.Escape)) //ESC키
+            {
+                Debug.WriteLine("정지정지");
+                STOP = true;
+            }
+
+        }
+
+        //Stop버튼 터치
+        private void StopButton_Click(object sender, RoutedEventArgs e)
+        {
+            Debug.WriteLine("정지정지");
+            STOP = true;
+        }
+
+
+        //정보 버튼
+        private void JmacroLogo_Click(object sender, RoutedEventArgs e)
+        {
+            DefaultDialog win2 = new DefaultDialog("정보", "[Jmacro v2.4]\n넷마블체리 품질관리팀 송민준");
+            win2.Owner = System.Windows.Application.Current.MainWindow; // 팝업창 부모창 가운데 뜨게하기
+            win2.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            bool result = win2.ShowDialog().Value;
+        }
+
+
+
+
+
+        // 매크로 UI 제어
+
+        private void RuningMacroComponent()
+        {
+            State_Running.Visibility = Visibility.Visible;
+            State_Stop.Visibility = Visibility.Collapsed;
+
+            RunButton.Visibility = Visibility.Collapsed;
+            RunButtonGray.Visibility = Visibility.Visible;
+
+            StopButtonGray.Visibility = Visibility.Collapsed;
+            StopButton.Visibility = Visibility.Visible;
+
+            AddButton.Visibility = Visibility.Collapsed;
+            AddButtonGray.Visibility = Visibility.Visible;
+
+            DeleteButton.Visibility = Visibility.Collapsed;
+            DeleteButtonGray.Visibility = Visibility.Visible;
+
+            SaveButton.Visibility = Visibility.Collapsed;
+            SaveButtonGray.Visibility = Visibility.Visible;
+
+            InitButton.Visibility = Visibility.Collapsed;
+            InitButtonGray.Visibility = Visibility.Visible;
+
+            Textbox1.Visibility = Visibility.Collapsed;
+            Textbox1Running.Visibility = Visibility.Visible;
+
+            ModifyButton.Visibility = Visibility.Collapsed;
+            ModifyButtonGray.Visibility = Visibility.Visible;
+
+            AddWaitButton.Visibility = Visibility.Collapsed;
+            AddWaitButtonGray.Visibility = Visibility.Visible;
+
+            CheckOffButton.Visibility = Visibility.Collapsed;
+            CheckOffButtonGray.Visibility = Visibility.Visible;
+
+            CopyButton.Visibility = Visibility.Collapsed;
+            CopyButtonGray.Visibility = Visibility.Visible;
+
+        }
+
+        private void StopMacroComponent()
+        {
+            State_Running.Visibility = Visibility.Collapsed;
+            State_Stop.Visibility = Visibility.Visible;
+
+            RunButton.Visibility = Visibility.Visible;
+            RunButtonGray.Visibility = Visibility.Collapsed;
+
+            StopButtonGray.Visibility = Visibility.Visible;
+            StopButton.Visibility = Visibility.Collapsed;
+
+            AddButton.Visibility = Visibility.Visible;
+            AddButtonGray.Visibility = Visibility.Collapsed;
+
+            DeleteButton.Visibility = Visibility.Visible;
+            DeleteButtonGray.Visibility = Visibility.Collapsed;
+
+            SaveButton.Visibility = Visibility.Visible;
+            SaveButtonGray.Visibility = Visibility.Collapsed;
+
+            InitButton.Visibility = Visibility.Visible;
+            InitButtonGray.Visibility = Visibility.Collapsed;
+
+            Textbox1.Visibility = Visibility.Visible;
+            Textbox1Running.Visibility = Visibility.Collapsed;
+
+            ModifyButton.Visibility = Visibility.Visible;
+            ModifyButtonGray.Visibility = Visibility.Collapsed;
+
+            AddWaitButton.Visibility = Visibility.Visible;
+            AddWaitButtonGray.Visibility = Visibility.Collapsed;
+
+            CheckOffButton.Visibility = Visibility.Visible;
+            CheckOffButtonGray.Visibility = Visibility.Collapsed;
+
+            CopyButton.Visibility = Visibility.Visible;
+            CopyButtonGray.Visibility = Visibility.Collapsed;
+
+
+        }
+
+
+
+
+        
+    }
+
+
+
+
+    [Serializable]
+    public class MacroData
+    {
+
+        //컬럼 정의
+        private bool check;             //체크
+        private int index;              //액션 번호
+        private string actionName;      //액션명
+        private int int_Value;          //정수 값
+        private string string_Value;    //문자열 값
+        private string imageName;       //참조 이미지 이름
+
+        
+
+        //위의 내용을 리팩토링 > 캡슐화로 만듬.
+        public bool Check { get => check; set => check = value; }
+        public int Index { get => index; set => index = value; }
+        public string ActionName { get => actionName; set => actionName = value; }
+        public int Int_Value { get => int_Value; set => int_Value = value; }
+        public string String_Value { get => string_Value; set => string_Value = value; }
+        public string ImageName { get => imageName; set => imageName = value; }
+            
+
+        public MacroData(bool check, int index, string actionName, int int_Value, string string_Value, string imageName)
+        {
+
+            this.check = check;
+            this.index = index;
+            this.actionName = actionName;
+            this.int_Value = int_Value;
+            this.string_Value = string_Value;
+            this.imageName = imageName;
+
+        }
+
+        
+    }
+
+}
