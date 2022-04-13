@@ -1,0 +1,418 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Navigation;
+using System.Windows.Shapes;
+using System.Diagnostics; //Debug사용
+using System.Drawing;
+using System.Windows.Forms;
+using System.IO;
+using System.Drawing.Imaging; //스크린 캡쳐용
+using OpenCvSharp;
+using System.Runtime.InteropServices; //이미지 서칭용/마우스이벤트
+
+
+
+
+//MecroController
+//얘가 할 수 있는기능 
+//절대 할 수 없을것 같은 기능
+class Function : SingletonBase<Function>
+{
+    //String AppName = "NoxPlayer";
+    static Bitmap searchImg;
+    static int X, Y;
+
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    public static extern int SendMessage(IntPtr hwnd, int wMsg, int wParam, IntPtr lParam);
+
+    [System.Runtime.InteropServices.DllImport("User32.dll")]
+    public static extern IntPtr FindWindowEx(IntPtr Parent, IntPtr Child, string lpszClass, string lpszWindows);
+
+
+    //오토핫키 dll임포트
+    [DllImport("ImageSearchDLL.dll")]
+    private static extern IntPtr ImageSearch(int x, int y, int right, int bottom, [MarshalAs(UnmanagedType.LPStr)]string imagePath);
+
+    //캡쳐뜰 새 부분 dll
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    internal static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
+
+    //키보드 이벤트 dll
+    [DllImport("User32.dll")]
+    public static extern void keybd_event(uint vk, uint scan, uint flags, uint extraInfo);
+    //키다운 keybd_event((byte) Keys.A, 0x00, 0x00, 0);
+    //키업   keybd_event((byte)Keys.S, 0x00, 0x02, 0);
+
+
+    //마우스 이벤트 dll
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint flag, uint deltaX, uint deltaY, uint data, int extraInformation);
+
+    //마우스 이벤트 상수 선언
+    private const int WM_MOUSEMOVE = 0x201;
+    private const int WM_LBUTTONDOWN = 0x202;
+    private const int WM_LBUTTONUP = 0x204;
+
+    /*
+            WM_LBUTTONDOWN = 0x201, //Left mousebutton down 
+            WM_LBUTTONUP = 0x202,  //Left mousebutton up 
+            WM_LBUTTONDBLCLK = 0x203, //Left mousebutton doubleclick 
+            WM_RBUTTONDOWN = 0x204, //Right mousebutton down 
+            WM_RBUTTONUP = 0x205,   //Right mousebutton up 
+            WM_RBUTTONDBLCLK = 0x206, //Right mousebutton doubleclick 
+            WM_KEYDOWN = 0x100,  //Key down 
+            WM_KEYUP = 0x101,   //Key up 
+            WM_SYSKEYDOWN = 0x104, 
+            WM_SYSKEYUP = 0x105, 
+            WM_CHAR = 0x102, 
+            WM_COMMAND = 0x111     
+     */
+
+
+    //1008 추가
+    [DllImport("user32.dll")]
+    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+    //[DllImport("user32.dll")]
+    //public static extern IntPtr FindWindowEx(IntPtr hWnd1, IntPtr hWnd2, string lpsz1, string lpsz2);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, int wParam, IntPtr lParam);
+
+    //[DllImport("user32.dll")]
+    //public static extern int SendMessage(IntPtr hWnd, uint msg, int wParam, IntPtr lParam);
+    //[System.Runtime.InteropServices.DllImport("user32.dll")]
+    //internal static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
+
+    //윈도우 핸들 얻기
+    [DllImport("user32.dll", EntryPoint = "GetDesktopWindow")]
+    private static extern IntPtr GetDesktopWindow();
+
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern IntPtr ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("gdi32.dll", ExactSpelling = true)]
+    private static extern IntPtr BitBlt(IntPtr hDestDC, int x, int y, int nWidth, int nHeight, IntPtr hSrcDC, int xSrc, int ySrc, int dwRop);
+
+
+
+
+
+
+
+    //실행파일있는 곳에 Image/Save/Capture폴더 만들기
+    public static void CreateFolder()
+    {
+        string ImageDirPath;  //Dir value to save
+        string SaveDirPath;
+        string CaptureDirPath;
+        ImageDirPath = AppDomain.CurrentDomain.BaseDirectory + "\\Image";
+        SaveDirPath = AppDomain.CurrentDomain.BaseDirectory + "\\Save";
+        CaptureDirPath = AppDomain.CurrentDomain.BaseDirectory + "\\Capture";
+        DirectoryInfo di_Image = new DirectoryInfo(ImageDirPath);
+        DirectoryInfo di_Save = new DirectoryInfo(SaveDirPath);
+        DirectoryInfo di_Capture = new DirectoryInfo(CaptureDirPath);
+
+        if (di_Image.Exists == false)   //폴더가 없는가?
+            di_Image.Create();          //없으면 폴더 만듬
+
+        if (di_Save.Exists == false)   //폴더가 없는가?
+            di_Save.Create();
+
+        if (di_Capture.Exists == false)   //폴더가 없는가?
+            di_Capture.Create();
+    }
+
+
+
+    //타이핑 하기
+    public static void KeyTyping(string text)
+    {
+        SendKeys.SendWait(text);
+    }
+
+
+
+    //현재위치에서 더블클릭
+    public static void Click(int num)
+    {
+        //더블22
+        for (int i = 0; i < num; i++)
+        {
+            mouse_event(WM_LBUTTONDOWN, 0, 0, 0, 0);
+            mouse_event(WM_LBUTTONUP, 0, 0, 0, 0);
+        }
+
+        return;
+    }
+
+
+
+    //이미지 찾고 마우스 갖다놓기
+    public static void Search(string img)
+    {
+        int num = Convert.ToInt32(img.Replace("image", ""));
+        //이미지 찾기(경로 : Image폴더안에 image.png를 찾음)
+        string[] search = UseImageSearch(AppDomain.CurrentDomain.BaseDirectory + @"\\Image\\image" + num + ".png");
+
+        //이미지 크기 구하기
+        Bitmap sourceImage = new Bitmap(AppDomain.CurrentDomain.BaseDirectory + @"\\Image\\image" + num + ".png");
+        int width = sourceImage.Width / 2;
+        int height = sourceImage.Height / 2;
+
+
+        //서치실패의 경우 return
+        if (search == null)
+        {
+            //서치 실패 로그 보여주기
+            joonmacro.MainWindow.NotImageMatching();
+            return;
+        }
+
+
+        //서치 성공한 경우 좌표 리턴           
+        int[] search_ = new int[search.Length];
+
+        //서치 실패 로그 보여주기        
+        joonmacro.MainWindow.SuccessImageMatching();
+
+
+        for (int j = 0; j < search.Length; j++)
+        {
+            search_[j] = Convert.ToInt32(search[j]);
+        }
+        Debug.WriteLine(search_[1] + "," + search_[2]); //해당 이미지 서칭의 좌표 리턴
+
+
+
+        //해당 좌표로 마우스 갖다놓기 
+        NativeMethods.SetCursorPos(search_[1] + width, search_[2] + height);
+        //이미지의 전체사이즈에서 가로/2, 세로/2를 더해줌. (딱 가운데 마우스 커서 갖다놓음)
+    }
+
+
+
+    //마우스 이동계산 클래스
+    public partial class NativeMethods
+    {
+        /// Return Type: BOOL->int  
+        ///X: int  
+        ///Y: int  
+        [System.Runtime.InteropServices.DllImportAttribute("user32.dll", EntryPoint = "SetCursorPos")]
+        [return: System.Runtime.InteropServices.MarshalAsAttribute(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public static extern bool SetCursorPos(int X, int Y);
+    }
+
+
+    //마우스 이동
+    public static void MouseMove(int x, int y)
+    {
+        NativeMethods.SetCursorPos(x, y);
+    }
+
+
+
+    //이미지 찾기 세부 함수
+    public static String[] UseImageSearch(string imgPath)
+    {
+        int right = Screen.PrimaryScreen.WorkingArea.Right;
+        int bottom = Screen.PrimaryScreen.WorkingArea.Bottom;
+
+        IntPtr result = ImageSearch(0, 0, right, bottom, imgPath);
+        String res = Marshal.PtrToStringAnsi(result);
+
+        //이미지 서치 결과값  0번 =  결과 성공1 실패0 1,2번 = x,y 3,4번 = 이미지의 세로가로길이
+        //res = 한자씩 나눠져있음
+        if (res[0] == '0') //res를 이용하여 이미지여부 확인
+        {
+            Debug.WriteLine("Not Matching Image");
+            return null;
+        }
+
+        String[] data = res.Split('|'); // |로 결과 값을 조각
+        int x;
+        int y;
+        int.TryParse(data[1], out x);//x좌표
+        int.TryParse(data[2], out y);//y좌표
+
+        //for(int i=0; i<5; i++)
+        //  MessageBox.Show(i + "번째 " + data[i]);
+        Debug.WriteLine("check Image");
+        return data;
+    }
+
+
+
+
+    //일정 시간 대기
+    public static DateTime Wait(int ms)
+    {
+        DateTime ThisMoment = DateTime.Now;
+        TimeSpan duration = new TimeSpan(0, 0, 0, 0, ms);
+        DateTime AfterWards = ThisMoment.Add(duration);
+
+        while (AfterWards >= ThisMoment)
+        {
+            System.Windows.Forms.Application.DoEvents();
+            ThisMoment = DateTime.Now;
+        }
+
+        return DateTime.Now;
+    }
+
+
+    //화면 캡쳐  
+    public static void ScreenCopy()
+    {
+        // 주화면의 크기 정보 읽기
+        int width = (int)SystemParameters.PrimaryScreenWidth;
+        int height = (int)SystemParameters.PrimaryScreenHeight;
+
+        // 화면 크기만큼의 Bitmap 생성 
+        using (Bitmap bmp = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppRgb)) //Format32bppArgb
+        {
+            // Bitmap 이미지 변경을 위해 Graphics 객체 생성
+            using (Graphics gr = Graphics.FromImage(bmp))
+            {
+                // 화면을 그대로 카피해서 Bitmap 메모리에 저장
+                gr.CopyFromScreen(0, 0, 0, 0, bmp.Size);
+            }
+            // Bitmap 데이타를 파일로 저장
+            Debug.WriteLine("화면 캡쳐 완료");
+
+            bmp.Save(AppDomain.CurrentDomain.BaseDirectory + @"\\Capture\\ScreenShot" + joonmacro.MainWindow.CAPTURE_NUM + ".png", ImageFormat.Png);
+            joonmacro.MainWindow.CAPTURE_NUM += 1;
+        }
+    }
+
+
+    //마우스 현재 위치 찾기
+    public static string GetMousePos()
+    {
+        string mx = System.Windows.Forms.Cursor.Position.X.ToString();
+        string my = System.Windows.Forms.Cursor.Position.Y.ToString();
+
+        return mx + "," + my;
+    }
+
+
+
+
+
+   
+
+
+
+
+    //1008 추가기능
+
+    //이미지에서 사진 찾기
+    //기존에 있는 사진에서 찾기
+    public static int ImageSearch(String findImagePathName, double inAccuracy)
+    {
+        double accuracy; //정확도
+        IntPtr handle = GetDC(GetDesktopWindow()); // 윈도우 핸들 잡기
+
+
+
+        // 주화면의 크기 정보 읽기
+        int t_width = (int)SystemParameters.PrimaryScreenWidth;
+        int t_height = (int)SystemParameters.PrimaryScreenHeight;
+
+        // 화면 크기만큼의 Bitmap 생성
+        using (Bitmap tmp = new Bitmap(t_width, t_height, System.Drawing.Imaging.PixelFormat.Format32bppRgb)) //Format32bppArgb
+
+        {
+            // Bitmap 이미지 변경을 위해 Graphics 객체 생성
+            using (Graphics gr = Graphics.FromImage(tmp))
+            {
+                // 화면을 그대로 카피해서 Bitmap 메모리에 저장
+                gr.CopyFromScreen(0, 0, 0, 0, tmp.Size);
+            }
+            // Bitmap 데이타를 파일로 저장
+            Debug.WriteLine("비교를 위한 임시 스크린 파일 생성");
+
+            tmp.Save(AppDomain.CurrentDomain.BaseDirectory + @"\\Image\\tmp.png", ImageFormat.Png);
+
+        }
+
+
+
+        //화면 스크린샷(임시 생성 후 삭제)
+        Bitmap bmp = new Bitmap(AppDomain.CurrentDomain.BaseDirectory + @"\\Image\\tmp.png"); //저장경로에서 찾기=====일단경로는 임시로 1을 찾음
+
+        //찾을 이미지
+        searchImg = new Bitmap(AppDomain.CurrentDomain.BaseDirectory + @"\\Image\\" + findImagePathName + ".png"); 
+        int width = searchImg.Width / 2;
+        int height = searchImg.Height / 2;
+        
+
+        Console.Write(findImagePathName + " : ");
+        accuracy = searchIMG(handle, bmp, searchImg);
+        if (accuracy >= inAccuracy)
+        {
+            //해당 좌표로 마우스 갖다놓기 
+            NativeMethods.SetCursorPos(X + width, Y + height);
+            //이미지의 전체사이즈에서 가로/2, 세로/2를 더해줌. (딱 가운데 마우스 커서 갖다놓음)            
+            joonmacro.MainWindow.SuccessImageMatching();
+
+            //임시파일 삭제          
+            bmp.Dispose();
+            return 1;
+        }
+
+        Console.Write("매칭된 항목 없음");
+        joonmacro.MainWindow.NotImageMatching();
+
+        //임시파일 삭제
+        bmp.Dispose();
+        return 0;
+
+        
+        //임시 파일 지워주기
+    }
+
+
+
+    public static double searchIMG(IntPtr handle, Bitmap screen_img, Bitmap find_img)
+    {
+        //스크린 이미지 선언
+        using (Mat ScreenMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(screen_img))
+        //찾을 이미지 선언
+        using (Mat FindMat = OpenCvSharp.Extensions.BitmapConverter.ToMat(find_img))
+        //스크린 이미지에서 FindMat 이미지를 찾아라 - 이미지 매칭시 스크린 32비트, 비교 32비트로 이미지가 포멧이 맞아야 비교가됨
+        using (Mat res = ScreenMat.MatchTemplate(FindMat, TemplateMatchModes.CCoeffNormed))
+        {
+            //찾은 이미지의 유사도를 담을 더블형 최대 최소 값을 선언합니다.
+            double minval, maxval = 0;
+            //찾은 이미지의 위치를 담을 포인트형을 선업합니다.
+            OpenCvSharp.Point minloc, maxloc;
+            //찾은 이미지의 유사도 및 위치 값을 받습니다. 
+            Cv2.MinMaxLoc(res, out minval, out maxval, out minloc, out maxloc);
+            Console.WriteLine("매칭 유사도 : " + maxval);
+            Console.WriteLine("x : " + maxloc.X + ", y : " + maxloc.Y);
+            X = maxloc.X;
+            Y = maxloc.Y;
+            return maxval;
+        }
+    }
+
+
+
+
+}
+
